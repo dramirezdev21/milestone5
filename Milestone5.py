@@ -12,7 +12,7 @@ from Temporal_schemes import RK4
 # ---------------------------------------------------------
 def Initial_conditions(Nb, Nc):
     """
-    Devuelve el vector de estado U0 siguiendo la estructura del profesor:
+    Devuelve el vector de estado U0 :
     U (longitud 2*Nc*Nb) reorganizado como U[body, coord, pos/vel].
     """
 
