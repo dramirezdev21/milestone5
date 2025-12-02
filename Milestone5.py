@@ -1,118 +1,134 @@
-# Milestone5.py
-#
-# Milestone 5: N-body problem
-# ---------------------------
-# 1) Define and integrate the planar N-body gravitational problem.
-# 2) Simulate a simple 3-body configuration and visualize the result.
+# Milestone 5 - N Body Problem
 
 import numpy as np
 import matplotlib.pyplot as plt
 
 from Cauchy_problem import Cauchy_problem
-from Temporal_schemes import RK4   # we reuse last year's RK4 implementation
-from nbody_tools import make_nbody_rhs, total_energy, reshape_solution
+from Temporal_schemes import RK4  
 
 
-def run_three_body_example():
+# ---------------------------------------------------------
+#  Generación de condiciones iniciales 
+# ---------------------------------------------------------
+def Initial_conditions(Nb, Nc):
     """
-    Three-body planar gravitational system:
-    - Body 0: "star" at the origin, massive and nearly fixed.
-    - Body 1: "planet" on a roughly circular orbit.
-    - Body 2: lighter body on a wider orbit.
-
-    All units are non-dimensional.
+    Devuelve el vector de estado U0 siguiendo la estructura del profesor:
+    U (longitud 2*Nc*Nb) reorganizado como U[body, coord, pos/vel].
     """
 
-    # Gravitational constant
-    G = 1.0
+    # U0 es un vector 1D que luego se reorganiza como (Nb, Nc, 2)
+    U0 = np.zeros(2 * Nc * Nb)
+    U1 = U0.reshape(Nb, Nc, 2)
 
-    # Masses: one heavy, two light
+    r0 = U1[:, :, 0]   # posiciones
+    v0 = U1[:, :, 1]   # velocidades
+
+    # -----------------------------------------------------
+    # Sistema de 3 cuerpos 
+    # -----------------------------------------------------
+
+    # Masas (solo para referencia)
+    # m = [1.0, 1e-3, 5e-4]
+
+    # Body 0: "sol"
+    r0[0, :] = [0.0, 0.0]
+    v0[0, :] = [0.0, 0.0]
+
+    # Body 1
+    r0[1, :] = [1.0, 0.0]
+    v0[1, :] = [0.0, np.sqrt(1.0 / 1.0)]  # v = sqrt(GM/r), con G=1
+
+    # Body 2
+    r0[2, :] = [1.8, 0.0]
+    v0[2, :] = [0.0, np.sqrt(1.0 / 1.8)]
+
+    return U0
+
+
+# ---------------------------------------------------------
+#  Ecuaciones del movimiento 
+# ---------------------------------------------------------
+def F_NBody(U, t, Nb, Nc, masses, G=1.0):
+    """
+    Ecuaciones dvi/dt = -G sum_j m_j (ri - rj)/|ri-rj|^3
+    dr/dt = v
+    """
+    Us = U.reshape(Nb, Nc, 2)
+
+    r = Us[:, :, 0]    # (Nb, Nc)
+    v = Us[:, :, 1]    # (Nb, Nc)
+
+    F = np.zeros_like(U)
+    dUs = F.reshape(Nb, Nc, 2)
+
+    drdt = dUs[:, :, 0]
+    dvdt = dUs[:, :, 1]
+
+    # dr_i/dt = v_i
+    drdt[:, :] = v
+
+    # dv_i/dt = sum_j!=i G*m_j*(r_j - r_i)/|r_j - r_i|^3
+    for i in range(Nb):
+        for j in range(Nb):
+            if i != j:
+                diff = r[j, :] - r[i, :]
+                dist = np.linalg.norm(diff)
+                dvdt[i, :] += G * masses[j] * diff / dist**3
+
+    return F
+
+
+# ---------------------------------------------------------
+#  Integración principal 
+# ---------------------------------------------------------
+def Integrate_NBP():
+
+    # Número de cuerpos y coordenadas
+    Nb = 3
+    Nc = 2   # (x,y)
+
+    # masas de tu config. original
     masses = np.array([1.0, 1e-3, 5e-4])
 
-    N_bodies = len(masses)
-
-    # --- Initial positions (x, y) ---
-    # Star at origin
-    x0, y0 = 0.0, 0.0
-
-    # Planet 1 at radius r1
-    r1 = 1.0
-    x1, y1 = r1, 0.0
-
-    # Planet 2 at radius r2 > r1
-    r2 = 1.8
-    x2, y2 = r2, 0.0
-
-    # --- Initial velocities (vx, vy) ---
-    # Approximate circular velocities (central field)
-    v1 = np.sqrt(G * masses[0] / r1)
-    v2 = np.sqrt(G * masses[0] / r2)
-
-    # Star: small velocity so total momentum is ~0
-    vx0, vy0 = 0.0, 0.0
-
-    # Planet 1: perpendicular to radius (along +y)
-    vx1, vy1 = 0.0, v1
-
-    # Planet 2: perpendicular to radius (along +y)
-    vx2, vy2 = 0.0, v2
-
-    # Pack initial state vector U0 = [x, y, vx, vy] for all bodies
-    U0 = np.array([x0, y0, x1, y1, x2, y2, vx0, vy0, vx1, vy1, vx2, vy2],
-                  dtype=float)
-
-    # Time grid
+    # tiempo
+    N = 4000
     t0 = 0.0
-    tf = 50.0      # total time
-    Nt = 5000      # number of steps
-    t = np.linspace(t0, tf, Nt + 1)
+    tf = 50.0
+    Time = np.linspace(t0, tf, N + 1)
 
-    # Build the RHS for this N-body system
-    F = make_nbody_rhs(masses, G=G, softening=1e-3)
+    # condiciones iniciales 
+    U0 = Initial_conditions(Nb, Nc)
 
-    # Integrate using the generic Cauchy problem solver + RK4
-    U = Cauchy_problem(F, t, U0, Temporal_scheme=RK4)
+    # Definición del RHS como función anónima
+    def F(U, t):
+        return F_NBody(U, t, Nb, Nc, masses)
 
-    # Reshape solution for easier plotting
-    positions, velocities = reshape_solution(U, masses)
+    # Integración usando RK4 
+    U = Cauchy_problem(F, Time, U0, RK4)
 
-    # -------------------------------------------------------
-    # Plot trajectories in configuration space
-    # -------------------------------------------------------
-    colors = ["gold", "tab:blue", "tab:orange"]
+    # Reorganizamos para graficar
+    Us = U.reshape(N + 1, Nb, Nc, 2)
+    R = Us[:, :, :, 0]      # posiciones -> (Nt, Nb, 2)
 
+    # -----------------------------------------------------
+    # Gráfico de trayectorias 
+    # -----------------------------------------------------
     plt.figure(figsize=(7, 7))
-    for k in range(N_bodies):
-        plt.plot(positions[:, k, 0], positions[:, k, 1],
-                 label=f"Body {k}", color=colors[k])
-        plt.scatter(positions[0, k, 0], positions[0, k, 1],
-                    marker="o", color=colors[k])
 
+    for i in range(Nb):
+        plt.plot(R[:, i, 0], R[:, i, 1], label=f"Cuerpo {i}")
+        plt.scatter(R[0, i, 0], R[0, i, 1], s=50)
+
+    plt.axis("equal")
+    plt.grid()
+    plt.legend()
+    plt.title("Órbitas del problema de 3 cuerpos ")
     plt.xlabel("x")
     plt.ylabel("y")
-    plt.title("Three-body gravitational problem (planar)")
-    plt.axis("equal")
-    plt.grid(True)
-    plt.legend()
-    plt.tight_layout()
-    plt.show()
 
-    # -------------------------------------------------------
-    # Plot total energy vs time (diagnostic of conservation)
-    # -------------------------------------------------------
-    energy = np.zeros(len(t))
-    for i in range(len(t)):
-        energy[i] = total_energy(U[i, :], masses, G=G)
-
-    plt.figure(figsize=(8, 4))
-    plt.plot(t, energy)
-    plt.xlabel("t")
-    plt.ylabel("Total energy")
-    plt.title("Energy evolution in the three-body simulation")
-    plt.grid(True)
-    plt.tight_layout()
     plt.show()
 
 
+# ---------------------------------------------------------
 if __name__ == "__main__":
-    run_three_body_example()
+    Integrate_NBP()
